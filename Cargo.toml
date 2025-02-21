@@ -1,0 +1,7 @@
+[package]
+name = "basic65emu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpu6502 = { git = "https://github.com/sarpt/cpu6502", version = "0.1.0" }
