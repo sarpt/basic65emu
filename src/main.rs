@@ -13,58 +13,89 @@ use memory::Generic64kMem;
 
 mod memory;
 
-const KB9_BASIC_ROM_START_ADDR: Word = 0x2000;
-const KB9_COLD_START_ADDR: Word = 0x4065;
 const KB9_ROM_BIN_PATH: &str = "resources/kb9.bin";
-const KB9_MONCOUT_ADDR: Word = 0x1EA0;
-const KB9_MONRDKEY_ADDR: Word = 0x1E5A;
+const OSI_ROM_BIN_PATH: &str = "resources/osi.bin";
 
-const KB9_MON_HANDLER_HI: Byte = 0xFF;
-const KB9_MONCOUT_HANDLER_LO: Byte = 0x00;
-const KB9_MONCOUT_STORE_LO: Byte = 0x04;
-const KB9_MONRDKEY_HANDLER_LO: Byte = 0x05;
-const KB9_MONRDKEY_STORE_LO: Byte = 0x0B;
+#[derive(Clone, Copy)]
+struct Addresses {
+    basic_rom_start: Word,
+    cold_start: Word,
+    moncout_vector: Word,
+    monrdkey_vector: Word,
+    mon_handlers_hi: Byte,
+    moncout_handler_lo: Byte,
+    moncout_store_lo: Byte,
+    monrdkey_handler_lo: Byte,
+    monrdkey_store_lo: Byte,
+}
+
+const KB9_ADDRESSES: Addresses = Addresses {
+    basic_rom_start: 0x2000,
+    cold_start: 0x4065,
+    moncout_vector: 0x1EA0,
+    monrdkey_vector: 0x1E5A,
+    mon_handlers_hi: 0xFF,
+    moncout_handler_lo: 0x00,
+    moncout_store_lo: 0x04,
+    monrdkey_handler_lo: 0x05,
+    monrdkey_store_lo: 0x0B,
+};
+
+const OSI_ADDRESSES: Addresses = Addresses {
+    basic_rom_start: 0xA000,
+    cold_start: 0xBD11,
+    moncout_vector: 0xFFEE,
+    monrdkey_vector: 0xFFEB,
+    mon_handlers_hi: 0x02,
+    moncout_handler_lo: 0x22,
+    moncout_store_lo: 0x27,
+    monrdkey_handler_lo: 0x28,
+    monrdkey_store_lo: 0x2E,
+};
 
 fn main() {
-    let path: PathBuf = PathBuf::from(KB9_ROM_BIN_PATH);
-    let mut mem = Generic64kMem::map_file(KB9_BASIC_ROM_START_ADDR, path).unwrap();
-    mem.set_reset_vector(KB9_COLD_START_ADDR);
+    let bin_path = KB9_ROM_BIN_PATH;
+    let addresses = KB9_ADDRESSES;
+
+    let path: PathBuf = PathBuf::from(bin_path);
+    let mut mem = Generic64kMem::map_file(addresses.basic_rom_start, path).unwrap();
+    mem.set_reset_vector(addresses.cold_start);
 
     let moncout_jmp = [
         0x20 as Byte, // jsr to handler location
-        KB9_MONCOUT_HANDLER_LO,
-        KB9_MON_HANDLER_HI,
+        addresses.moncout_handler_lo,
+        addresses.mon_handlers_hi,
         0x60, // rts
     ];
-    mem.insert(KB9_MONCOUT_ADDR, &moncout_jmp);
+    mem.insert(addresses.moncout_vector, &moncout_jmp);
     let moncout_handler = [
         0x8D as Byte, // sta to cout store location
-        KB9_MONCOUT_STORE_LO,
-        KB9_MON_HANDLER_HI,
+        addresses.moncout_store_lo,
+        addresses.mon_handlers_hi,
         0x60, // rts
     ];
     mem.insert(
-        Word::from_le_bytes([KB9_MONCOUT_HANDLER_LO, KB9_MON_HANDLER_HI]),
+        Word::from_le_bytes([addresses.moncout_handler_lo, addresses.mon_handlers_hi]),
         &moncout_handler,
     );
 
     let monrdkey_jump = [
         0x20 as Byte, // jsr to handler location
-        KB9_MONRDKEY_HANDLER_LO,
-        KB9_MON_HANDLER_HI,
+        addresses.monrdkey_handler_lo,
+        addresses.mon_handlers_hi,
         0x60, // rts
     ];
-    mem.insert(KB9_MONRDKEY_ADDR, &monrdkey_jump);
+    mem.insert(addresses.monrdkey_vector, &monrdkey_jump);
     let monrdkey_handler = [
         0xA9 as Byte, // lda 13
         0x0D,
         0x8D, // sta to rdkey store location
-        KB9_MONRDKEY_STORE_LO,
-        KB9_MON_HANDLER_HI,
+        addresses.monrdkey_store_lo,
+        addresses.mon_handlers_hi,
         0x60, // rts
     ];
     mem.insert(
-        Word::from_le_bytes([KB9_MONRDKEY_HANDLER_LO, KB9_MON_HANDLER_HI]),
+        Word::from_le_bytes([addresses.monrdkey_handler_lo, addresses.mon_handlers_hi]),
         &monrdkey_handler,
     );
 
@@ -72,36 +103,39 @@ fn main() {
     let mut cpu = CPU::new_nmos(&memory);
     cpu.reset();
 
-    while !ready_to_read_key(memory.borrow().deref()) || !cpu.sync() {
+    while !ready_to_read_key(&addresses, memory.borrow().deref()) || !cpu.sync() {
         cpu.tick();
 
-        if cpu.sync() && ready_to_output_character(memory.borrow().deref()) {
-            let out_character = consume_character(memory.borrow_mut().deref_mut());
+        if cpu.sync() && ready_to_output_character(&addresses, memory.borrow().deref()) {
+            let out_character = consume_character(&addresses, memory.borrow_mut().deref_mut());
             print!("{}", out_character);
         }
     }
 }
 
-fn ready_to_read_key<T>(memory: &T) -> bool
+fn ready_to_read_key<T>(addresses: &Addresses, memory: &T) -> bool
 where
     T: Memory,
 {
-    return memory[Word::from_le_bytes([KB9_MONRDKEY_STORE_LO, KB9_MON_HANDLER_HI])] != 0;
+    return memory[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])]
+        != 0;
 }
 
-fn ready_to_output_character<T>(memory: &T) -> bool
+fn ready_to_output_character<T>(addresses: &Addresses, memory: &T) -> bool
 where
     T: Memory,
 {
-    return memory[Word::from_le_bytes([KB9_MONCOUT_STORE_LO, KB9_MON_HANDLER_HI])] != 0;
+    return memory[Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi])]
+        != 0;
 }
 
-fn consume_character<T>(memory: &mut T) -> char
+fn consume_character<T>(addresses: &Addresses, memory: &mut T) -> char
 where
     T: Memory,
 {
-    let out_character =
-        memory[Word::from_le_bytes([KB9_MONCOUT_STORE_LO, KB9_MON_HANDLER_HI])] as char;
-    memory[Word::from_le_bytes([KB9_MONCOUT_STORE_LO, KB9_MON_HANDLER_HI])] = 0;
+    let character_address =
+        Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi]);
+    let out_character = memory[character_address] as char;
+    memory[character_address] = 0;
     return out_character;
 }
