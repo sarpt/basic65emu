@@ -1,3 +1,4 @@
+use clap::{Parser, ValueEnum};
 use std::{
     cell::RefCell,
     ops::{Deref, DerefMut},
@@ -12,6 +13,19 @@ use cpu6502::{
 use memory::Generic64kMem;
 
 mod memory;
+
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[arg(value_enum, required = true)]
+    variant: Variant,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum Variant {
+    KB9,
+    OSI,
+}
 
 const KB9_ROM_BIN_PATH: &str = "resources/kb9.bin";
 const OSI_ROM_BIN_PATH: &str = "resources/osi.bin";
@@ -48,24 +62,23 @@ const OSI_ADDRESSES: Addresses = Addresses {
     monrdkey_vector: 0xFFEB,
     mon_handlers_hi: 0x02,
     moncout_handler_lo: 0x22,
-    moncout_store_lo: 0x27,
-    monrdkey_handler_lo: 0x28,
-    monrdkey_store_lo: 0x2E,
+    moncout_store_lo: 0x26,
+    monrdkey_handler_lo: 0x27,
+    monrdkey_store_lo: 0x2D,
 };
 
 fn main() {
-    let bin_path = KB9_ROM_BIN_PATH;
-    let addresses = KB9_ADDRESSES;
+    let cli = Cli::parse();
+    let (bin_path, addresses) = parse_variant(&cli);
 
     let path: PathBuf = PathBuf::from(bin_path);
     let mut mem = Generic64kMem::map_file(addresses.basic_rom_start, path).unwrap();
     mem.set_reset_vector(addresses.cold_start);
 
     let moncout_jmp = [
-        0x20 as Byte, // jsr to handler location
+        0x4C as Byte, // jmp to handler location
         addresses.moncout_handler_lo,
         addresses.mon_handlers_hi,
-        0x60, // rts
     ];
     mem.insert(addresses.moncout_vector, &moncout_jmp);
     let moncout_handler = [
@@ -80,10 +93,9 @@ fn main() {
     );
 
     let monrdkey_jump = [
-        0x20 as Byte, // jsr to handler location
+        0x4C as Byte, // jsr to handler location
         addresses.monrdkey_handler_lo,
         addresses.mon_handlers_hi,
-        0x60, // rts
     ];
     mem.insert(addresses.monrdkey_vector, &monrdkey_jump);
     let monrdkey_handler = [
@@ -110,6 +122,13 @@ fn main() {
             let out_character = consume_character(&addresses, memory.borrow_mut().deref_mut());
             print!("{}", out_character);
         }
+    }
+}
+
+fn parse_variant(cli: &Cli) -> (&str, Addresses) {
+    match cli.variant {
+        Variant::KB9 => return (KB9_ROM_BIN_PATH, KB9_ADDRESSES),
+        Variant::OSI => return (OSI_ROM_BIN_PATH, OSI_ADDRESSES),
     }
 }
 

@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.31", features = ["derive"] }
 cpu6502 = { git = "https://github.com/sarpt/cpu6502", version = "0.1.0" }
