@@ -1,6 +1,7 @@
 use clap::{Parser, ValueEnum};
 use std::{
     cell::RefCell,
+    io::{self, Read, Write},
     ops::{Deref, DerefMut},
     path::PathBuf,
 };
@@ -49,10 +50,10 @@ const KB9_ADDRESSES: Addresses = Addresses {
     moncout_vector: 0x1EA0,
     monrdkey_vector: 0x1E5A,
     mon_handlers_hi: 0xFF,
-    moncout_handler_lo: 0x00,
-    moncout_store_lo: 0x04,
-    monrdkey_handler_lo: 0x05,
-    monrdkey_store_lo: 0x0B,
+    moncout_handler_lo: 0x02,
+    moncout_store_lo: 0x00,
+    monrdkey_handler_lo: 0x07,
+    monrdkey_store_lo: 0x01,
 };
 
 const OSI_ADDRESSES: Addresses = Addresses {
@@ -61,10 +62,10 @@ const OSI_ADDRESSES: Addresses = Addresses {
     moncout_vector: 0xFFEE,
     monrdkey_vector: 0xFFEB,
     mon_handlers_hi: 0x02,
-    moncout_handler_lo: 0x22,
-    moncout_store_lo: 0x26,
-    monrdkey_handler_lo: 0x27,
-    monrdkey_store_lo: 0x2D,
+    moncout_handler_lo: 0x24,
+    moncout_store_lo: 0x22,
+    monrdkey_handler_lo: 0x29,
+    monrdkey_store_lo: 0x23,
 };
 
 fn main() {
@@ -93,15 +94,18 @@ fn main() {
     );
 
     let monrdkey_jump = [
-        0x4C as Byte, // jsr to handler location
+        0x4C as Byte, // jmp to handler location
         addresses.monrdkey_handler_lo,
         addresses.mon_handlers_hi,
     ];
     mem.insert(addresses.monrdkey_vector, &monrdkey_jump);
     let monrdkey_handler = [
-        0xA9 as Byte, // lda 13
-        0x0D,
+        0xA9 as Byte, // lda 1
+        0x01,
         0x8D, // sta to rdkey store location
+        addresses.monrdkey_store_lo,
+        addresses.mon_handlers_hi,
+        0xAD, // lda $monrdkey_store
         addresses.monrdkey_store_lo,
         addresses.mon_handlers_hi,
         0x60, // rts
@@ -115,12 +119,32 @@ fn main() {
     let mut cpu = CPU::new_nmos(&memory);
     cpu.reset();
 
-    while !ready_to_read_key(&addresses, memory.borrow().deref()) || !cpu.sync() {
+    loop {
         cpu.tick();
 
-        if cpu.sync() && ready_to_output_character(&addresses, memory.borrow().deref()) {
+        if !cpu.sync() {
+            continue;
+        }
+        if ready_to_output_character(&addresses, memory.borrow().deref()) {
             let out_character = consume_character(&addresses, memory.borrow_mut().deref_mut());
             print!("{}", out_character);
+            let _ = io::stdout().flush();
+        }
+
+        if ready_to_read_key(&addresses, memory.borrow().deref()) {
+            let mut input: Byte = std::io::stdin()
+                .bytes()
+                .next()
+                .and_then(|result| result.ok())
+                .expect("");
+
+            if input == 10 {
+                input = 13;
+            }
+
+            memory.borrow_mut()
+                [Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] =
+                input;
         }
     }
 }
@@ -137,7 +161,7 @@ where
     T: Memory,
 {
     return memory[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])]
-        != 0;
+        == 1;
 }
 
 fn ready_to_output_character<T>(addresses: &Addresses, memory: &T) -> bool
