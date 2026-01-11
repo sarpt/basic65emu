@@ -1,8 +1,6 @@
 use clap::{Parser, ValueEnum};
 use std::{
-    cell::RefCell,
     io::{self, Read, Write},
-    ops::{Deref, DerefMut},
     path::PathBuf,
 };
 
@@ -115,23 +113,23 @@ fn main() {
         &monrdkey_handler,
     );
 
-    let memory = RefCell::from(mem);
-    let mut cpu = CPU::new_nmos(&memory);
-    cpu.reset();
+    let mut cpu = CPU::new_nmos();
+    cpu.reset(&mem);
 
     loop {
-        cpu.tick();
+        cpu.tick(&mut mem);
 
         if !cpu.sync() {
             continue;
         }
-        if ready_to_output_character(&addresses, memory.borrow().deref()) {
-            let out_character = consume_character(&addresses, memory.borrow_mut().deref_mut());
+
+        if ready_to_output_character(&addresses, &mem) {
+            let out_character = consume_character(&addresses, &mut mem);
             print!("{}", out_character);
             let _ = io::stdout().flush();
         }
 
-        if ready_to_read_key(&addresses, memory.borrow().deref()) {
+        if ready_to_read_key(&addresses, &mem) {
             let mut input: Byte = std::io::stdin()
                 .bytes()
                 .next()
@@ -142,17 +140,15 @@ fn main() {
                 input = 13;
             }
 
-            memory.borrow_mut()
-                [Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] =
-                input;
+            mem[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] = input;
         }
     }
 }
 
 fn parse_variant(cli: &Cli) -> (&str, Addresses) {
     match cli.variant {
-        Variant::KB9 => return (KB9_ROM_BIN_PATH, KB9_ADDRESSES),
-        Variant::OSI => return (OSI_ROM_BIN_PATH, OSI_ADDRESSES),
+        Variant::KB9 => (KB9_ROM_BIN_PATH, KB9_ADDRESSES),
+        Variant::OSI => (OSI_ROM_BIN_PATH, OSI_ADDRESSES),
     }
 }
 
@@ -160,16 +156,16 @@ fn ready_to_read_key<T>(addresses: &Addresses, memory: &T) -> bool
 where
     T: Memory,
 {
-    return memory[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])]
-        == 1;
+    memory[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])]
+        == 1
 }
 
 fn ready_to_output_character<T>(addresses: &Addresses, memory: &T) -> bool
 where
     T: Memory,
 {
-    return memory[Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi])]
-        != 0;
+    memory[Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi])]
+        != 0
 }
 
 fn consume_character<T>(addresses: &Addresses, memory: &mut T) -> char
@@ -180,5 +176,5 @@ where
         Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi]);
     let out_character = memory[character_address] as char;
     memory[character_address] = 0;
-    return out_character;
+    out_character
 }
