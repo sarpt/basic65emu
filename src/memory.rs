@@ -6,7 +6,7 @@ use std::{
 };
 
 use cpu6502::{
-    consts::{Byte, Word, RESET_VECTOR},
+    consts::{Byte, RESET_VECTOR, Word},
     memory::Memory,
 };
 
@@ -18,9 +18,9 @@ pub struct Generic64kMem {
 
 impl Generic64kMem {
     pub fn new() -> Self {
-        return Generic64kMem {
+        Generic64kMem {
             data: vec![0; MAX_MEMORY_KB],
-        };
+        }
     }
 
     pub fn insert(&mut self, addr: Word, payload: &[Byte]) {
@@ -42,7 +42,7 @@ impl Generic64kMem {
             mem.data[addr as usize] = byte.unwrap();
             addr += 1
         }
-        return Ok(mem);
+        Ok(mem)
     }
 
     pub fn set_reset_vector(&mut self, addr: Word) {
@@ -59,7 +59,7 @@ impl Index<Word> for Generic64kMem {
 
     fn index(&self, idx: Word) -> &Self::Output {
         let mem_address: usize = idx.into();
-        return &self.data[mem_address];
+        &self.data[mem_address]
     }
 }
 
@@ -69,13 +69,13 @@ impl Index<Range<Word>> for Generic64kMem {
     fn index(&self, idx: Range<Word>) -> &Self::Output {
         let start: usize = idx.start.into();
         let end: usize = idx.end.into();
-        return &self.data[start..end];
+        &self.data[start..end]
     }
 }
 
 impl IndexMut<Word> for Generic64kMem {
     fn index_mut(&mut self, idx: Word) -> &mut Self::Output {
         let mem_address: usize = idx.into();
-        return &mut self.data[mem_address];
+        &mut self.data[mem_address]
     }
 }
