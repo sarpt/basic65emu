@@ -1,16 +1,19 @@
 use clap::{Parser, ValueEnum};
 use std::{
-    io::{self, Read, Write},
+    io::{self, BufReader, Read, Write},
     path::PathBuf,
 };
 
 use cpu6502::{
     consts::{Byte, Word},
-    cpu::CPU,
+    cpu::{CPU, debugger::Debugger},
     memory::Memory,
 };
 use memory::Generic64kMem;
 
+use crate::debugging_session::DebuggingSession;
+
+mod debugging_session;
 mod memory;
 
 #[derive(Parser)]
@@ -18,6 +21,8 @@ mod memory;
 struct Cli {
     #[arg(value_enum, required = true)]
     variant: Variant,
+    #[arg(long, required = false, default_value_t = false)]
+    debug: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -68,6 +73,11 @@ const OSI_ADDRESSES: Addresses = Addresses {
 
 fn main() {
     let cli = Cli::parse();
+    let mut debugger = if cli.debug {
+        DebuggingSession::try_from(Debugger::new()).ok()
+    } else {
+        None
+    };
     let (bin_path, addresses) = parse_variant(&cli);
 
     let path: PathBuf = PathBuf::from(bin_path);
@@ -116,8 +126,12 @@ fn main() {
     let mut cpu = CPU::new_nmos();
     cpu.reset(&mem);
 
+    let mut stdin_reader = BufReader::new(std::io::stdin()).bytes();
     loop {
         cpu.tick(&mut mem);
+        if let Some(debug) = &mut debugger {
+            debug.probe(&cpu);
+        }
 
         if !cpu.sync() {
             continue;
@@ -130,8 +144,7 @@ fn main() {
         }
 
         if ready_to_read_key(&addresses, &mem) {
-            let mut input: Byte = std::io::stdin()
-                .bytes()
+            let mut input: Byte = stdin_reader
                 .next()
                 .and_then(|result| result.ok())
                 .expect("");
@@ -140,7 +153,8 @@ fn main() {
                 input = 13;
             }
 
-            mem[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] = input;
+            mem[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] =
+                input;
         }
     }
 }
@@ -156,16 +170,14 @@ fn ready_to_read_key<T>(addresses: &Addresses, memory: &T) -> bool
 where
     T: Memory,
 {
-    memory[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])]
-        == 1
+    memory[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] == 1
 }
 
 fn ready_to_output_character<T>(addresses: &Addresses, memory: &T) -> bool
 where
     T: Memory,
 {
-    memory[Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi])]
-        != 0
+    memory[Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi])] != 0
 }
 
 fn consume_character<T>(addresses: &Addresses, memory: &mut T) -> char
