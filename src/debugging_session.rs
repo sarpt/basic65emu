@@ -12,7 +12,7 @@ pub struct DebuggingSession {
   debug_writer: BufWriter<File>,
 }
 
-const DEFAULT_DEBUG_BUFF_CAP_MB: usize = 2 * 1024 * 1024 * 1024;
+const DEFAULT_DEBUG_BUFF_CAP_MB: usize = 2 * 1024 * 1024;
 
 impl DebuggingSession {
   pub fn new(debugger: Debugger) -> Result<Self, String> {
@@ -46,6 +46,10 @@ impl DebuggingSession {
     if let Some(inst) = self.debugger.get_last_instruction() {
       _ = writeln!(&mut self.debug_writer, "{inst}");
     }
+  }
+
+  pub fn close(&mut self) -> Result<(), String> {
+    self.debug_writer.flush().map_err(|e| format!("could not save debug buffer: {e}"))
   }
 }
 
