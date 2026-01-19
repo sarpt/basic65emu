@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
+use signal_hook::iterator::Signals;
 use std::{
-  io::{self, BufReader, Read, Write},
-  path::PathBuf,
+  io::{self, BufReader, Read, Write}, path::PathBuf, sync::{Arc, atomic}, thread
 };
 
 use cpu6502::{
@@ -130,7 +130,22 @@ fn main() -> Result<(), String> {
   cpu.reset(&mem);
 
   let mut stdin_reader = BufReader::new(std::io::stdin()).bytes();
+
+  let mut sigs = signal_hook::iterator::Signals::new([signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT]).map_err(|e| format!("could not initialize signals handler {e}"))?;
+  let should_terminate = Arc::new(atomic::AtomicBool::new(false));
+  let terminate = should_terminate.clone();
+  _ = thread::spawn(move || {
+    for sig in sigs.forever() {
+      println!("received sig {sig}");
+      terminate.store(true, atomic::Ordering::Relaxed);
+    }
+  });
+
   loop {
+    if should_terminate.load(atomic::Ordering::Relaxed) {
+      break
+    }
+
     cpu.tick(&mut mem);
     if let Some(debug) = &mut debugger {
       debug.probe(&cpu);
@@ -159,6 +174,12 @@ fn main() -> Result<(), String> {
       mem[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] = input;
     }
   }
+
+  if let Some(mut debug) = debugger {
+    debug.close()?
+  }
+
+  Ok(())
 }
 
 fn parse_variant(cli: &Cli) -> (&str, Addresses) {
