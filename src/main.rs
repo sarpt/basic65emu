@@ -1,7 +1,9 @@
 use clap::{Parser, ValueEnum};
-use signal_hook::iterator::Signals;
 use std::{
-  io::{self, BufReader, Read, Write}, path::PathBuf, sync::{Arc, atomic}, thread
+  io::{self, BufReader, Read, Write},
+  path::PathBuf,
+  sync::{Arc, atomic},
+  thread,
 };
 
 use cpu6502::{
@@ -22,7 +24,7 @@ struct Cli {
   #[arg(value_enum, required = true)]
   variant: Variant,
   #[arg(long, required = false, default_value_t = false)]
-  debug: bool,
+  debug_log: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -73,15 +75,14 @@ const OSI_ADDRESSES: Addresses = Addresses {
 
 fn main() -> Result<(), String> {
   let cli = Cli::parse();
-  let mut debugger = if cli.debug {
-    Some(
-      DebuggingSession::try_from(Debugger::new())
-        .map_err(|e| format!("could not create debuggin session: {e}"))?,
-    )
-  } else {
-    None
-  };
   let (bin_path, addresses) = parse_variant(&cli);
+
+  let mut debugger = DebuggingSession::new(Debugger::new(), addresses);
+  if cli.debug_log {
+    debugger
+      .initiate_log()
+      .map_err(|err| format!("could not initiate logger: {}", err))?;
+  }
 
   let path: PathBuf = PathBuf::from(bin_path);
   let mut mem = Generic64kMem::map_file(addresses.basic_rom_start, path).unwrap();
@@ -131,7 +132,11 @@ fn main() -> Result<(), String> {
 
   let mut stdin_reader = BufReader::new(std::io::stdin()).bytes();
 
-  let mut sigs = signal_hook::iterator::Signals::new([signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT]).map_err(|e| format!("could not initialize signals handler {e}"))?;
+  let mut sigs = signal_hook::iterator::Signals::new([
+    signal_hook::consts::SIGTERM,
+    signal_hook::consts::SIGINT,
+  ])
+  .map_err(|e| format!("could not initialize signals handler {e}"))?;
   let should_terminate = Arc::new(atomic::AtomicBool::new(false));
   let terminate = should_terminate.clone();
   _ = thread::spawn(move || {
@@ -143,13 +148,11 @@ fn main() -> Result<(), String> {
 
   loop {
     if should_terminate.load(atomic::Ordering::Relaxed) {
-      break
+      break;
     }
 
     cpu.tick(&mut mem);
-    if let Some(debug) = &mut debugger {
-      debug.probe(&cpu);
-    }
+    debugger.probe(&cpu);
 
     if !cpu.sync() {
       continue;
@@ -175,9 +178,7 @@ fn main() -> Result<(), String> {
     }
   }
 
-  if let Some(mut debug) = debugger {
-    debug.close()?
-  }
+  debugger.close()?;
 
   Ok(())
 }
