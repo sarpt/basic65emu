@@ -5,9 +5,13 @@ use std::{
   time::{self, UNIX_EPOCH},
 };
 
-use cpu6502::cpu::{
-  CPU,
-  debugger::{Debugger, ProbeResult},
+use cpu6502::{
+  consts::Byte,
+  cpu::{
+    CPU,
+    debugger::{Debugger, ProbeResult, Traps},
+  },
+  memory::Memory,
 };
 
 use crate::Addresses;
@@ -20,8 +24,16 @@ pub struct DebuggingSession {
 
 const DEFAULT_DEBUG_BUFF_CAP_MB: usize = 2 * 1024 * 1024;
 
+#[derive(Copy, Clone)]
+pub enum Events {
+  Monrdkey,
+  Moncout(Byte),
+}
+
 impl DebuggingSession {
-  pub fn new(debugger: Debugger, addresses: Addresses) -> Self {
+  pub fn new(mut debugger: Debugger, addresses: Addresses) -> Self {
+    debugger.trap_between_addresses(addresses.moncout_vector..=addresses.moncout_vector + 1);
+    debugger.trap_between_addresses(addresses.monrdkey_vector..=addresses.monrdkey_vector + 1);
     DebuggingSession {
       addresses,
       debugger,
@@ -56,15 +68,34 @@ impl DebuggingSession {
     Ok(())
   }
 
-  pub fn probe(&mut self, cpu: &CPU) -> Vec<ProbeResult> {
-    let results = self.debugger.probe(cpu);
+  pub fn probe(&mut self, cpu: &CPU, memory: &dyn Memory) -> Vec<Events> {
+    let mut events: Vec<Events> = Vec::new();
+
+    let (probe_results, registers) = self.debugger.probe(cpu, memory);
+    for trap in probe_results {
+      let traps = match trap {
+        ProbeResult::TrapHit(traps) => traps,
+        _ => continue,
+      };
+
+      match traps {
+        Traps::AddressRange(_range_inclusive, addr) => {
+          if addr == self.addresses.moncout_vector {
+            events.push(Events::Moncout(registers.a));
+          } else if addr == self.addresses.monrdkey_vector {
+            events.push(Events::Monrdkey);
+          }
+        }
+      };
+    }
+
     if let Some(inst) = self.debugger.get_last_instruction()
       && let Some(debug_writer) = &mut self.debug_writer
     {
       _ = writeln!(debug_writer, "{inst}");
     }
 
-    results
+    events
   }
 
   pub fn close(&mut self) -> Result<(), String> {
