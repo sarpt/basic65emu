@@ -72,27 +72,32 @@ impl DebuggingSession {
     let mut events: Vec<Events> = Vec::new();
 
     let (probe_results, registers) = self.debugger.probe(cpu, memory);
-    for trap in probe_results {
-      let traps = match trap {
-        ProbeResult::TrapHit(traps) => traps,
-        _ => continue,
-      };
-
-      match traps {
-        Traps::AddressRange(_range_inclusive, addr) => {
-          if addr == self.addresses.moncout_vector {
-            events.push(Events::Moncout(registers.a));
-          } else if addr == self.addresses.monrdkey_vector {
-            events.push(Events::Monrdkey);
+    for result in probe_results {
+      match result {
+        ProbeResult::TrapHit(traps) => {
+          match traps {
+            Traps::AddressRange(_range_inclusive, addr) => {
+              if addr == self.addresses.moncout_vector {
+                events.push(Events::Moncout(registers.a));
+              } else if addr == self.addresses.monrdkey_vector {
+                events.push(Events::Monrdkey);
+              }
+            }
+          };
+        }
+        // TODO: this could be changed to print only when the instruction finishes
+        // and NextInstruction is being emitted. To think whether return prev
+        // and new instruction in NextInstruction or to implement method to get
+        // previous instruction on new one being fetched
+        ProbeResult::AddressingDone => {
+          if let Some(inst) = self.debugger.get_last_instruction()
+            && let Some(debug_writer) = &mut self.debug_writer
+          {
+            _ = writeln!(debug_writer, "{inst}");
           }
         }
+        _ => continue,
       };
-    }
-
-    if let Some(inst) = self.debugger.get_last_instruction()
-      && let Some(debug_writer) = &mut self.debug_writer
-    {
-      _ = writeln!(debug_writer, "{inst}");
     }
 
     events
