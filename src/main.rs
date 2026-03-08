@@ -9,7 +9,6 @@ use std::{
 use cpu6502::{
   consts::{Byte, Word},
   cpu::{CPU, debugger::Debugger},
-  memory::Memory,
 };
 use memory::Generic64kMem;
 
@@ -42,11 +41,6 @@ struct Addresses {
   cold_start: Word,
   moncout_vector: Word,
   monrdkey_vector: Word,
-  mon_handlers_hi: Byte,
-  moncout_handler_lo: Byte,
-  moncout_store_lo: Byte,
-  monrdkey_handler_lo: Byte,
-  monrdkey_store_lo: Byte,
 }
 
 const KB9_ADDRESSES: Addresses = Addresses {
@@ -54,11 +48,6 @@ const KB9_ADDRESSES: Addresses = Addresses {
   cold_start: 0x4065,
   moncout_vector: 0x1EA0,
   monrdkey_vector: 0x1E5A,
-  mon_handlers_hi: 0xFF,
-  moncout_handler_lo: 0x02,
-  moncout_store_lo: 0x00,
-  monrdkey_handler_lo: 0x07,
-  monrdkey_store_lo: 0x01,
 };
 
 const OSI_ADDRESSES: Addresses = Addresses {
@@ -66,11 +55,6 @@ const OSI_ADDRESSES: Addresses = Addresses {
   cold_start: 0xBD11,
   moncout_vector: 0xFFEE,
   monrdkey_vector: 0xFFEB,
-  mon_handlers_hi: 0x02,
-  moncout_handler_lo: 0x24,
-  moncout_store_lo: 0x22,
-  monrdkey_handler_lo: 0x29,
-  monrdkey_store_lo: 0x23,
 };
 
 fn main() -> Result<(), String> {
@@ -88,44 +72,17 @@ fn main() -> Result<(), String> {
   let mut mem = Generic64kMem::map_file(addresses.basic_rom_start, path).unwrap();
   mem.set_reset_vector(addresses.cold_start);
 
-  let moncout_jmp = [
-    0x4C as Byte, // jmp to handler location
-    addresses.moncout_handler_lo,
-    addresses.mon_handlers_hi,
+  let moncout = [
+    0x60, // rts immediately, probing have read accumulator already
   ];
-  mem.insert(addresses.moncout_vector, &moncout_jmp);
-  let moncout_handler = [
-    0x8D as Byte, // sta to cout store location
-    addresses.moncout_store_lo,
-    addresses.mon_handlers_hi,
-    0x60, // rts
-  ];
-  mem.insert(
-    Word::from_le_bytes([addresses.moncout_handler_lo, addresses.mon_handlers_hi]),
-    &moncout_handler,
-  );
+  mem.insert(addresses.moncout_vector, &moncout);
 
-  let monrdkey_jump = [
-    0x4C as Byte, // jmp to handler location
-    addresses.monrdkey_handler_lo,
-    addresses.mon_handlers_hi,
-  ];
-  mem.insert(addresses.monrdkey_vector, &monrdkey_jump);
-  let monrdkey_handler = [
-    0xA9 as Byte, // lda 1
-    0x01,
-    0x8D, // sta to rdkey store location
-    addresses.monrdkey_store_lo,
-    addresses.mon_handlers_hi,
-    0xAD, // lda $monrdkey_store
-    addresses.monrdkey_store_lo,
-    addresses.mon_handlers_hi,
+  let monrdkey = [
+    0xA9 as Byte, // lda next dynamically filled value
+    0x00,
     0x60, // rts
   ];
-  mem.insert(
-    Word::from_le_bytes([addresses.monrdkey_handler_lo, addresses.mon_handlers_hi]),
-    &monrdkey_handler,
-  );
+  mem.insert(addresses.monrdkey_vector, &monrdkey);
 
   let mut cpu = CPU::new_nmos();
   cpu.reset(&mem);
@@ -152,29 +109,27 @@ fn main() -> Result<(), String> {
     }
 
     cpu.tick(&mut mem);
-    debugger.probe(&cpu);
+    let events = debugger.probe(&cpu, &mem);
+    for event in events {
+      match event {
+        debugging_session::Events::Monrdkey => {
+          let mut input: Byte = stdin_reader
+            .next()
+            .and_then(|result| result.ok())
+            .expect("");
 
-    if !cpu.sync() {
-      continue;
-    }
+          if input == 10 {
+            input = 13;
+          }
 
-    if ready_to_output_character(&addresses, &mem) {
-      let out_character = consume_character(&addresses, &mut mem);
-      print!("{}", out_character);
-      let _ = io::stdout().flush();
-    }
-
-    if ready_to_read_key(&addresses, &mem) {
-      let mut input: Byte = stdin_reader
-        .next()
-        .and_then(|result| result.ok())
-        .expect("");
-
-      if input == 10 {
-        input = 13;
+          mem[addresses.monrdkey_vector + 1] = input;
+        }
+        debugging_session::Events::Moncout(accumulator) => {
+          let out_character = accumulator as char;
+          print!("{}", out_character);
+          let _ = io::stdout().flush();
+        }
       }
-
-      mem[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] = input;
     }
   }
 
@@ -188,29 +143,4 @@ fn parse_variant(cli: &Cli) -> (&str, Addresses) {
     Variant::KB9 => (KB9_ROM_BIN_PATH, KB9_ADDRESSES),
     Variant::OSI => (OSI_ROM_BIN_PATH, OSI_ADDRESSES),
   }
-}
-
-fn ready_to_read_key<T>(addresses: &Addresses, memory: &T) -> bool
-where
-  T: Memory,
-{
-  memory[Word::from_le_bytes([addresses.monrdkey_store_lo, addresses.mon_handlers_hi])] == 1
-}
-
-fn ready_to_output_character<T>(addresses: &Addresses, memory: &T) -> bool
-where
-  T: Memory,
-{
-  memory[Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi])] != 0
-}
-
-fn consume_character<T>(addresses: &Addresses, memory: &mut T) -> char
-where
-  T: Memory,
-{
-  let character_address =
-    Word::from_le_bytes([addresses.moncout_store_lo, addresses.mon_handlers_hi]);
-  let out_character = memory[character_address] as char;
-  memory[character_address] = 0;
-  out_character
 }
