@@ -14,7 +14,7 @@ use cpu6502::{
   memory::Memory,
 };
 
-use crate::Addresses;
+use crate::{Addresses, labels::Labels};
 
 pub struct DebuggingSession {
   addresses: Addresses,
@@ -68,10 +68,13 @@ impl DebuggingSession {
     Ok(())
   }
 
-  pub fn probe(&mut self, cpu: &CPU, memory: &dyn Memory) -> Vec<Events> {
+  pub fn probe(&mut self, cpu: &CPU, memory: &dyn Memory, labels: Option<&Labels>) -> Vec<Events> {
     let mut events: Vec<Events> = Vec::new();
 
-    let (probe_results, registers) = self.debugger.probe(cpu, memory);
+    let (probe_results, registers) = match labels {
+      Some(symbols) => self.debugger.probe_with_symbols(cpu, memory, symbols),
+      None => self.debugger.probe(cpu, memory),
+    };
     for result in probe_results {
       match result {
         ProbeResult::TrapHit(traps) => {

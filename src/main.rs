@@ -12,9 +12,10 @@ use cpu6502::{
 };
 use memory::Generic64kMem;
 
-use crate::debugging_session::DebuggingSession;
+use crate::{debugging_session::DebuggingSession, labels::Labels};
 
 mod debugging_session;
+mod labels;
 mod memory;
 
 #[derive(Parser)]
@@ -24,6 +25,8 @@ struct Cli {
   variant: Variant,
   #[arg(long, required = false, default_value_t = false)]
   debug_log: bool,
+  #[arg(long, required = false, default_value = None)]
+  debug_labels: Option<PathBuf>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -59,6 +62,14 @@ const OSI_ADDRESSES: Addresses = Addresses {
 
 fn main() -> Result<(), String> {
   let cli = Cli::parse();
+  let labels = cli
+    .debug_labels
+    .as_ref()
+    .map(|path| match Labels::from_labels_file(path) {
+      Ok(labels) => labels,
+      Err(e) => panic!("labels handling failed: {e}"),
+    });
+
   let (bin_path, addresses) = parse_variant(&cli);
 
   let mut debugger = DebuggingSession::new(Debugger::new(), addresses);
@@ -109,7 +120,7 @@ fn main() -> Result<(), String> {
     }
 
     cpu.tick(&mut mem);
-    let events = debugger.probe(&cpu, &mem);
+    let events = debugger.probe(&cpu, &mem, labels.as_ref());
     for event in events {
       match event {
         debugging_session::Events::Monrdkey => {
