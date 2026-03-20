@@ -97,6 +97,24 @@ impl DebuggingSession {
             && let Some(debug_writer) = &mut self.debug_writer
           {
             _ = writeln!(debug_writer, "{inst}");
+            _ = writeln!(
+              debug_writer,
+              "A: {}; X: {}, Y: {}",
+              registers.a, registers.x, registers.y
+            );
+
+            if let Some(target_addr) = inst.target_addr.and_then(|tgt| tgt.value()) {
+              let target_val = memory[target_addr];
+              _ = write!(
+                debug_writer,
+                "Target address: ${target_addr:X}; Memory target value: {target_val} / ${target_val:X}"
+              );
+              if char::is_ascii_graphic(&target_val.into()) {
+                _ = writeln!(debug_writer, " / char {}", target_val as char);
+              } else {
+                _ = writeln!(debug_writer);
+              }
+            }
           }
         }
         _ => continue,
