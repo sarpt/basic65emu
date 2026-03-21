@@ -9,7 +9,7 @@ use cpu6502::{
   consts::Byte,
   cpu::{
     CPU,
-    debugger::{Debugger, ProbeResult, Traps},
+    debugger::{Debugger, ProbeEvent, Traps},
   },
   memory::Memory,
 };
@@ -71,17 +71,17 @@ impl DebuggingSession {
   pub fn probe(&mut self, cpu: &CPU, memory: &dyn Memory, labels: Option<&Labels>) -> Vec<Events> {
     let mut events: Vec<Events> = Vec::new();
 
-    let (probe_results, registers) = match labels {
+    let result = match labels {
       Some(symbols) => self.debugger.probe_with_symbols(cpu, memory, symbols),
       None => self.debugger.probe(cpu, memory),
     };
-    for result in probe_results {
-      match result {
-        ProbeResult::TrapHit(traps) => {
+    for event in result.events {
+      match event {
+        ProbeEvent::TrapHit(traps) => {
           match traps {
             Traps::AddressRange(_range_inclusive, addr) => {
               if addr == self.addresses.moncout_vector {
-                events.push(Events::Moncout(registers.a));
+                events.push(Events::Moncout(result.registers.a));
               } else if addr == self.addresses.monrdkey_vector {
                 events.push(Events::Monrdkey);
               }
@@ -92,15 +92,15 @@ impl DebuggingSession {
         // and NextInstruction is being emitted. To think whether return prev
         // and new instruction in NextInstruction or to implement method to get
         // previous instruction on new one being fetched
-        ProbeResult::AddressingDone => {
+        ProbeEvent::AddressingDone => {
           if let Some(inst) = self.debugger.get_last_instruction()
             && let Some(debug_writer) = &mut self.debug_writer
           {
             _ = writeln!(debug_writer, "{inst}");
-            _ = writeln!(
+            _ = write!(
               debug_writer,
-              "A: {}; X: {}, Y: {}",
-              registers.a, registers.x, registers.y
+              "{}",
+              result.registers
             );
 
             if let Some(target_addr) = inst.target_addr.and_then(|tgt| tgt.value()) {
