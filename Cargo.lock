@@ -109,8 +109,8 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "cpu6502"
-version = "0.1.12"
-source = "git+https://github.com/sarpt/cpu6502#87c81f4cec62c05b09602c8aca014ee3d767656f"
+version = "0.1.13"
+source = "git+https://github.com/sarpt/cpu6502#c459e5c8212a5ebab1249337ed92c260b52451fb"
 dependencies = [
  "paste",
  "phf",
