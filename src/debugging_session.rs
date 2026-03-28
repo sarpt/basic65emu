@@ -88,32 +88,32 @@ impl DebuggingSession {
             }
           };
         }
-        // TODO: this could be changed to print only when the instruction finishes
-        // and NextInstruction is being emitted. To think whether return prev
-        // and new instruction in NextInstruction or to implement method to get
-        // previous instruction on new one being fetched
-        ProbeEvent::AddressingDone => {
-          if let Some(inst) = self.debugger.get_last_instruction()
-            && let Some(debug_writer) = &mut self.debug_writer
-          {
-            _ = writeln!(debug_writer, "{inst}");
+        ProbeEvent::InstructionDone => {
+          let Some(debug_writer) = &mut self.debug_writer else {
+            continue;
+          };
+
+          let Some(inst) = self.debugger.get_last_instruction() else {
+            continue;
+          };
+
+          _ = writeln!(debug_writer, "{inst}");
+          _ = write!(
+            debug_writer,
+            "{}",
+            result.registers
+          );
+
+          if let Some(target_addr) = inst.target_addr.and_then(|tgt| tgt.value()) {
+            let target_val = memory[target_addr];
             _ = write!(
               debug_writer,
-              "{}",
-              result.registers
+              "Target address: ${target_addr:X}; Memory target value: {target_val} / ${target_val:X}"
             );
-
-            if let Some(target_addr) = inst.target_addr.and_then(|tgt| tgt.value()) {
-              let target_val = memory[target_addr];
-              _ = write!(
-                debug_writer,
-                "Target address: ${target_addr:X}; Memory target value: {target_val} / ${target_val:X}"
-              );
-              if char::is_ascii_graphic(&target_val.into()) {
-                _ = writeln!(debug_writer, " / char {}", target_val as char);
-              } else {
-                _ = writeln!(debug_writer);
-              }
+            if char::is_ascii_graphic(&target_val.into()) {
+              _ = writeln!(debug_writer, " / char {}", target_val as char);
+            } else {
+              _ = writeln!(debug_writer);
             }
           }
         }
