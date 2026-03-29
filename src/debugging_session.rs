@@ -98,10 +98,11 @@ impl DebuggingSession {
           };
 
           _ = writeln!(debug_writer, "{inst}");
-          _ = write!(
+          _ = write!(debug_writer, "{}", result.registers);
+          _ = writeln!(
             debug_writer,
-            "{}",
-            result.registers
+            "Processor Status: {}",
+            result.processor_status
           );
 
           if let Some(target_addr) = inst.target_addr.and_then(|tgt| tgt.value()) {
