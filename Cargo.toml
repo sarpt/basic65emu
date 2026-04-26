@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.31", features = ["derive"] }
-cpu6502 = { git = "https://github.com/sarpt/cpu6502", version = "0.1.14" }
+cpu6502 = { git = "https://github.com/sarpt/cpu6502", version = "0.1.16" }
 signal-hook = "0.4.1"
