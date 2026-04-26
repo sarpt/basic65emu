@@ -1,7 +1,7 @@
 use std::{
   fs::File,
-  io::{self, Read},
-  ops::{Index, IndexMut, Range},
+  io::{self, BufReader, Read},
+  ops::{Index, IndexMut, Range, RangeInclusive},
   path::Path,
 };
 
@@ -14,12 +14,16 @@ const MAX_MEMORY_KB: usize = 64 * 1024;
 
 pub struct Generic64kMem {
   pub data: Vec<Byte>,
+  unwritable_ranges: Vec<RangeInclusive<Word>>,
+  dummy_byte: Byte,
 }
 
 impl Generic64kMem {
   pub fn new() -> Self {
     Generic64kMem {
       data: vec![0; MAX_MEMORY_KB],
+      unwritable_ranges: Vec::new(),
+      dummy_byte: Byte::default(),
     }
   }
 
@@ -36,12 +40,14 @@ impl Generic64kMem {
     P: AsRef<Path>,
   {
     let bin_file = File::open(bin_file_path)?;
+    let reader = BufReader::new(bin_file);
     let mut mem = Generic64kMem::new();
     let mut addr: Word = start_addr;
-    for byte in bin_file.bytes() {
+    for byte in reader.bytes() {
       mem.data[addr as usize] = byte.unwrap();
       addr += 1
     }
+
     Ok(mem)
   }
 
@@ -49,6 +55,10 @@ impl Generic64kMem {
     let [lo, hi] = addr.to_le_bytes();
     self.data[RESET_VECTOR as usize] = lo;
     self.data[RESET_VECTOR as usize + 1] = hi;
+  }
+
+  pub fn mark_range_unwritable(&mut self, range: RangeInclusive<Word>) {
+    self.unwritable_ranges.push(range);
   }
 }
 
@@ -75,6 +85,15 @@ impl Index<Range<Word>> for Generic64kMem {
 
 impl IndexMut<Word> for Generic64kMem {
   fn index_mut(&mut self, idx: Word) -> &mut Self::Output {
+    if self
+      .unwritable_ranges
+      .iter()
+      .any(|range| range.contains(&idx))
+    {
+      println!("attempting to write to unwritable memory {idx:04X}");
+      return &mut self.dummy_byte;
+    }
+
     let mem_address: usize = idx.into();
     &mut self.data[mem_address]
   }

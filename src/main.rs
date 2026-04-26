@@ -7,7 +7,7 @@ use std::{
 };
 
 use cpu6502::{
-  consts::{Byte, Word},
+  consts::{Byte, RESET_VECTOR, Word},
   cpu::{CPU, debugger::Debugger},
 };
 use memory::Generic64kMem;
@@ -38,12 +38,13 @@ enum Variant {
 const KB9_ROM_BIN_PATH: &str = "resources/kb9.bin";
 const OSI_ROM_BIN_PATH: &str = "resources/osi.bin";
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Addresses {
   basic_rom_start: Word,
   cold_start: Word,
   moncout_vector: Word,
   monrdkey_vector: Word,
+  ram_start: Word,
 }
 
 const KB9_ADDRESSES: Addresses = Addresses {
@@ -51,6 +52,7 @@ const KB9_ADDRESSES: Addresses = Addresses {
   cold_start: 0x4065,
   moncout_vector: 0x1EA0,
   monrdkey_vector: 0x1E5A,
+  ram_start: 0x4261,
 };
 
 const OSI_ADDRESSES: Addresses = Addresses {
@@ -58,6 +60,7 @@ const OSI_ADDRESSES: Addresses = Addresses {
   cold_start: 0xBD11,
   moncout_vector: 0xFFEE,
   monrdkey_vector: 0xFFEB,
+  ram_start: 0x0300,
 };
 
 fn main() -> Result<(), String> {
@@ -82,6 +85,10 @@ fn main() -> Result<(), String> {
   let path: PathBuf = PathBuf::from(bin_path);
   let mut mem = Generic64kMem::map_file(addresses.basic_rom_start, path).unwrap();
   mem.set_reset_vector(addresses.cold_start);
+  mem.mark_range_unwritable(RESET_VECTOR..=RESET_VECTOR + 1);
+  // use as much memory as possible until read key/char out vectors
+  mem.mark_range_unwritable(addresses.moncout_vector..=addresses.moncout_vector);
+  mem.mark_range_unwritable(addresses.monrdkey_vector..=addresses.monrdkey_vector);
 
   let moncout = [
     0x60, // rts immediately, probing have read accumulator already
@@ -95,7 +102,7 @@ fn main() -> Result<(), String> {
   ];
   mem.insert(addresses.monrdkey_vector, &monrdkey);
 
-  let mut cpu = CPU::new_nmos();
+  let mut cpu = CPU::new_wdc_cmos();
   cpu.reset(&mem);
 
   let mut stdin_reader = BufReader::new(std::io::stdin()).bytes();
@@ -129,6 +136,7 @@ fn main() -> Result<(), String> {
             .and_then(|result| result.ok())
             .expect("");
 
+          println!("{input}");
           if input == 10 {
             input = 13;
           }
